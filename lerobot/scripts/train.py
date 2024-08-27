@@ -303,8 +303,8 @@ def train(cfg: DictConfig, out_dir: str | None = None, job_name: str | None = No
 
     set_global_seed(cfg.seed)
 
-    # Check device is available
-    device = get_safe_torch_device(cfg.device, log=True)
+    # use cpu if no gpu is available
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu") # get_safe_torch_device(cfg.device, log=True) use this if not windows env and cuda a chance. 
 
     torch.backends.cudnn.benchmark = True
     torch.backends.cuda.matmul.allow_tf32 = True
@@ -666,4 +666,7 @@ def train_notebook(out_dir=None, job_name=None, config_name="default", config_pa
 
 
 if __name__ == "__main__":
+
+
     train_cli()
+# python lerobot/scripts/train.py policy=act env=aloha env.task=AlohaInsertion-v0

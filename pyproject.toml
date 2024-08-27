@@ -38,6 +38,7 @@ einops = ">=0.8.0"
 pymunk = ">=6.6.0"
 zarr = ">=2.17.0"
 numba = ">=0.59.0"
+clip = {git="https://github.com/openai/CLIP.git"}
 torch = ">=2.2.1"
 opencv-python = ">=4.9.0"
 diffusers = ">=0.27.2"
@@ -49,7 +50,8 @@ cmake = ">=3.29.0.1"
 gym-dora = { git = "https://github.com/dora-rs/dora-lerobot.git", subdirectory = "gym_dora", optional = true }
 gym-pusht = { version = ">=0.1.5", optional = true}
 gym-xarm = { version = ">=0.1.1", optional = true}
-gym-aloha = { version = ">=0.1.1", optional = true}
+#use latest version of gym-aloha force latest version of gym by pulling each time
+gym-aloha = { git = "https://github.com/st7ma784/gym-aloha.git"}
 pre-commit = {version = ">=3.7.0", optional = true}
 debugpy = {version = ">=1.8.1", optional = true}
 pytest = {version = ">=8.1.0", optional = true}
@@ -66,7 +68,6 @@ dynamixel-sdk = {version = ">=3.7.31", optional = true}
 pynput = {version = ">=1.7.7", optional = true}
 # TODO(rcadene, salibert): 71.0.1 has a bug
 setuptools = {version = "!=71.0.1", optional = true}
-
 
 
 [tool.poetry.extras]
