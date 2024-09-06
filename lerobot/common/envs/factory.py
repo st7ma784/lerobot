@@ -54,5 +54,7 @@ def make_env(cfg: DictConfig, n_envs: int | None = None) -> gym.vector.VectorEnv
             for _ in range(n_envs if n_envs is not None else cfg.eval.batch_size)
         ]
     )
-
+    print("Returning env")
+    print(env.__dict__)
+    print(env.__dir__())
     return env

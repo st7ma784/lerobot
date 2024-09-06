@@ -50,6 +50,10 @@ from lerobot.common.utils.utils import (
 )
 from lerobot.scripts.eval import eval_policy
 
+#initialize glfw for rendering
+import glfw
+glfw.init()
+
 
 def make_optimizer_and_scheduler(cfg, policy):
     if cfg.policy.name == "act":
@@ -308,52 +312,7 @@ def train(cfg: DictConfig, out_dir: str | None = None, job_name: str | None = No
 
     torch.backends.cudnn.benchmark = True
     torch.backends.cuda.matmul.allow_tf32 = True
-
-    logging.info("make_dataset")
-    offline_dataset = make_dataset(cfg)
-    if isinstance(offline_dataset, MultiLeRobotDataset):
-        logging.info(
-            "Multiple datasets were provided. Applied the following index mapping to the provided datasets: "
-            f"{pformat(offline_dataset.repo_id_to_index , indent=2)}"
-        )
-
-    # Create environment used for evaluating checkpoints during training on simulation data.
-    # On real-world data, no need to create an environment as evaluations are done outside train.py,
-    # using the eval.py instead, with gym_dora environment and dora-rs.
-    eval_env = None
-    if cfg.training.eval_freq > 0:
-        logging.info("make_env")
-        eval_env = make_env(cfg)
-
-    logging.info("make_policy")
-    policy = make_policy(
-        hydra_cfg=cfg,
-        dataset_stats=offline_dataset.stats if not cfg.resume else None,
-        pretrained_policy_name_or_path=str(logger.last_pretrained_model_dir) if cfg.resume else None,
-    )
-    assert isinstance(policy, nn.Module)
-    # Create optimizer and scheduler
-    # Temporary hack to move optimizer out of policy
-    optimizer, lr_scheduler = make_optimizer_and_scheduler(cfg, policy)
-    grad_scaler = GradScaler(enabled=cfg.use_amp)
-
-    step = 0  # number of policy updates (forward + backward + optim)
-
-    if cfg.resume:
-        step = logger.load_last_training_state(optimizer, lr_scheduler)
-
-    num_learnable_params = sum(p.numel() for p in policy.parameters() if p.requires_grad)
-    num_total_params = sum(p.numel() for p in policy.parameters())
-
-    log_output_dir(out_dir)
-    logging.info(f"{cfg.env.task=}")
-    logging.info(f"{cfg.training.offline_steps=} ({format_big_number(cfg.training.offline_steps)})")
-    logging.info(f"{cfg.training.online_steps=}")
-    logging.info(f"{offline_dataset.num_samples=} ({format_big_number(offline_dataset.num_samples)})")
-    logging.info(f"{offline_dataset.num_episodes=}")
-    logging.info(f"{num_learnable_params=} ({format_big_number(num_learnable_params)})")
-    logging.info(f"{num_total_params=} ({format_big_number(num_total_params)})")
-
+    
     # Note: this helper will be used in offline and online training loops.
     def evaluate_and_checkpoint_if_needed(step, is_online):
         _num_digits = max(6, len(str(cfg.training.offline_steps + cfg.training.online_steps)))
@@ -392,62 +351,113 @@ def train(cfg: DictConfig, out_dir: str | None = None, job_name: str | None = No
             )
             logging.info("Resume training")
 
-    # create dataloader for offline training
-    if cfg.training.get("drop_n_last_frames"):
-        shuffle = False
-        sampler = EpisodeAwareSampler(
-            offline_dataset.episode_data_index,
-            drop_n_last_frames=cfg.training.drop_n_last_frames,
-            shuffle=True,
-        )
-    else:
-        shuffle = True
-        sampler = None
-    dataloader = torch.utils.data.DataLoader(
-        offline_dataset,
-        num_workers=cfg.training.num_workers,
-        batch_size=cfg.training.batch_size,
-        shuffle=shuffle,
-        sampler=sampler,
-        pin_memory=device.type != "cpu",
-        drop_last=False,
+
+        assert isinstance(policy, nn.Module)
+        # Create optimizer and scheduler
+        # Temporary hack to move optimizer out of policy
+    
+    
+
+    policy = make_policy(
+        hydra_cfg=cfg,
+        dataset_stats={},
+        pretrained_policy_name_or_path=str(logger.last_pretrained_model_dir) if cfg.resume else None,
     )
-    dl_iter = cycle(dataloader)
+    optimizer, lr_scheduler = make_optimizer_and_scheduler(cfg, policy)
+    grad_scaler = GradScaler(enabled=cfg.use_amp)
+    logging.info("make_dataset")
+    if not  cfg.training.offline_steps==0:
+        
+        # Create environment used for evaluating checkpoints during training on simulation data.
+        # On real-world data, no need to create an environment as evaluations are done outside train.py,
+        # using the eval.py instead, with gym_dora environment and dora-rs.
+        offline_dataset = make_dataset(cfg)
+        if isinstance(offline_dataset, MultiLeRobotDataset):
+            logging.info(
+                "Multiple datasets were provided. Applied the following index mapping to the provided datasets: "
+                f"{pformat(offline_dataset.repo_id_to_index , indent=2)}"
+            )
+        eval_env = None
+        if cfg.training.eval_freq > 0:
+            logging.info("make_env")
+            eval_env = make_env(cfg)
 
-    policy.train()
-    offline_step = 0
-    for _ in range(step, cfg.training.offline_steps):
-        if offline_step == 0:
-            logging.info("Start offline training on a fixed dataset")
+        logging.info("make_policy")
 
-        start_time = time.perf_counter()
-        batch = next(dl_iter)
-        dataloading_s = time.perf_counter() - start_time
+        step = 0  # number of policy updates (forward + backward + optim)
 
-        for key in batch:
-            batch[key] = batch[key].to(device, non_blocking=True)
+        if cfg.resume:
+            step = logger.load_last_training_state(optimizer, lr_scheduler)
 
-        train_info = update_policy(
-            policy,
-            batch,
-            optimizer,
-            cfg.training.grad_clip_norm,
-            grad_scaler=grad_scaler,
-            lr_scheduler=lr_scheduler,
-            use_amp=cfg.use_amp,
+        num_learnable_params = sum(p.numel() for p in policy.parameters() if p.requires_grad)
+        num_total_params = sum(p.numel() for p in policy.parameters())
+
+        log_output_dir(out_dir)
+        logging.info(f"{cfg.env.task=}")
+        logging.info(f"{cfg.training.offline_steps=} ({format_big_number(cfg.training.offline_steps)})")
+        logging.info(f"{cfg.training.online_steps=}")
+        logging.info(f"{offline_dataset.num_samples=} ({format_big_number(offline_dataset.num_samples)})")
+        logging.info(f"{offline_dataset.num_episodes=}")
+        logging.info(f"{num_learnable_params=} ({format_big_number(num_learnable_params)})")
+        logging.info(f"{num_total_params=} ({format_big_number(num_total_params)})")
+
+
+        # create dataloader for offline training
+        if cfg.training.get("drop_n_last_frames"):
+            shuffle = False
+            sampler = EpisodeAwareSampler(
+                offline_dataset.episode_data_index,
+                drop_n_last_frames=cfg.training.drop_n_last_frames,
+                shuffle=True,
+            )
+        else:
+            shuffle = True
+            sampler = None
+        dataloader = torch.utils.data.DataLoader(
+            offline_dataset,
+            num_workers=cfg.training.num_workers,
+            batch_size=cfg.training.batch_size,
+            shuffle=shuffle,
+            sampler=sampler,
+            pin_memory=device.type != "cpu",
+            drop_last=False,
         )
+        dl_iter = cycle(dataloader)
 
-        train_info["dataloading_s"] = dataloading_s
+        policy.train()
+        offline_step = 0
+        for _ in range(step, cfg.training.offline_steps):
+            if offline_step == 0:
+                logging.info("Start offline training on a fixed dataset")
 
-        if step % cfg.training.log_freq == 0:
-            log_train_info(logger, train_info, step, cfg, offline_dataset, is_online=False)
+            start_time = time.perf_counter()
+            batch = next(dl_iter)
+            dataloading_s = time.perf_counter() - start_time
 
-        # Note: evaluate_and_checkpoint_if_needed happens **after** the `step`th training update has completed,
-        # so we pass in step + 1.
-        evaluate_and_checkpoint_if_needed(step + 1, is_online=False)
+            for key in batch:
+                batch[key] = batch[key].to(device, non_blocking=True)
 
-        step += 1
-        offline_step += 1  # noqa: SIM113
+            train_info = update_policy(
+                policy,
+                batch,
+                optimizer,
+                cfg.training.grad_clip_norm,
+                grad_scaler=grad_scaler,
+                lr_scheduler=lr_scheduler,
+                use_amp=cfg.use_amp,
+            )
+
+            train_info["dataloading_s"] = dataloading_s
+
+            if step % cfg.training.log_freq == 0:
+                log_train_info(logger, train_info, step, cfg, offline_dataset, is_online=False)
+
+            # Note: evaluate_and_checkpoint_if_needed happens **after** the `step`th training update has completed,
+            # so we pass in step + 1.
+            evaluate_and_checkpoint_if_needed(step + 1, is_online=False)
+
+            step += 1
+            offline_step += 1  # noqa: SIM113
 
     if cfg.training.online_steps == 0:
         if eval_env:
@@ -472,43 +482,44 @@ def train(cfg: DictConfig, out_dir: str | None = None, job_name: str | None = No
         )
     online_dataset = OnlineBuffer(
         online_buffer_path,
-        data_spec={
-            **{k: {"shape": v, "dtype": np.dtype("float32")} for k, v in policy.config.input_shapes.items()},
-            **{k: {"shape": v, "dtype": np.dtype("float32")} for k, v in policy.config.output_shapes.items()},
-            "next.reward": {"shape": (), "dtype": np.dtype("float32")},
-            "next.done": {"shape": (), "dtype": np.dtype("?")},
-            "next.success": {"shape": (), "dtype": np.dtype("?")},
-        },
+        data_spec=None ,
+
         buffer_capacity=cfg.training.online_buffer_capacity,
         fps=online_env.unwrapped.metadata["render_fps"],
         delta_timestamps=cfg.training.delta_timestamps,
     )
-
+    '''data_spec{
+        **{k: {"shape": v, "dtype": np.dtype("float32")} for k, v in policy.config.input_shapes.items()},
+        **{k: {"shape": v, "dtype": np.dtype("float32")} for k, v in policy.config.output_shapes.items()},
+        "next.reward": {"shape": (), "dtype": np.dtype("float32")},
+        "next.done": {"shape": (), "dtype": np.dtype("float32")},
+        "next.success": {"shape": (), "dtype": np.dtype("float32")},
+    },'''
     # If we are doing online rollouts asynchronously, deepcopy the policy to use for online rollouts (this
     # makes it possible to do online rollouts in parallel with training updates).
     online_rollout_policy = deepcopy(policy) if cfg.training.do_online_rollout_async else policy
 
     # Create dataloader for online training.
-    concat_dataset = torch.utils.data.ConcatDataset([offline_dataset, online_dataset])
-    sampler_weights = compute_sampler_weights(
-        offline_dataset,
-        offline_drop_n_last_frames=cfg.training.get("drop_n_last_frames", 0),
-        online_dataset=online_dataset,
-        # +1 because online rollouts return an extra frame for the "final observation". Note: we don't have
-        # this final observation in the offline datasets, but we might add them in future.
-        online_drop_n_last_frames=cfg.training.get("drop_n_last_frames", 0) + 1,
-        online_sampling_ratio=cfg.training.online_sampling_ratio,
-    )
-    sampler = torch.utils.data.WeightedRandomSampler(
-        sampler_weights,
-        num_samples=len(concat_dataset),
-        replacement=True,
-    )
+    # concat_dataset = torch.utils.data.ConcatDataset([ online_dataset])
+    # sampler_weights = compute_sampler_weights(
+        
+    #     offline_drop_n_last_frames=cfg.training.get("drop_n_last_frames", 0),
+    #     online_dataset=online_dataset,
+    #     # +1 because online rollouts return an extra frame for the "final observation". Note: we don't have
+    #     # this final observation in the offline datasets, but we might add them in future.
+    #     online_drop_n_last_frames=cfg.training.get("drop_n_last_frames", 0) + 1,
+    #     online_sampling_ratio=cfg.training.online_sampling_ratio,
+    # )
+    # sampler = torch.utils.data.WeightedRandomSampler(
+    #     sampler_weights,
+    #     num_samples=len(concat_dataset),
+    #     replacement=True,
+    # )
     dataloader = torch.utils.data.DataLoader(
-        concat_dataset,
+        online_dataset,
         batch_size=cfg.training.batch_size,
         num_workers=cfg.training.num_workers,
-        sampler=sampler,
+        # sampler=sampler,
         pin_memory=device.type != "cpu",
         drop_last=True,
     )
@@ -527,7 +538,7 @@ def train(cfg: DictConfig, out_dir: str | None = None, job_name: str | None = No
     # Time taken waiting for the online buffer to finish being updated. This is relevant when using the async
     # online rollout option.
     await_update_online_buffer_s = 0
-    rollout_start_seed = cfg.training.online_env_seed
+    rollout_start_seed = 0
 
     while True:
         if online_step == cfg.training.online_steps:

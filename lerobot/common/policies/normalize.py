@@ -71,17 +71,17 @@ def create_stats_buffers(
                 }
             )
 
-        if stats is not None:
-            # Note: The clone is needed to make sure that the logic in save_pretrained doesn't see duplicated
-            # tensors anywhere (for example, when we use the same stats for normalization and
-            # unnormalization). See the logic here
-            # https://github.com/huggingface/safetensors/blob/079781fd0dc455ba0fe851e2b4507c33d0c0d407/bindings/python/py_src/safetensors/torch.py#L97.
-            if mode == "mean_std":
-                buffer["mean"].data = stats[key]["mean"].clone()
-                buffer["std"].data = stats[key]["std"].clone()
-            elif mode == "min_max":
-                buffer["min"].data = stats[key]["min"].clone()
-                buffer["max"].data = stats[key]["max"].clone()
+        # if stats is not None: commmented out by st7ma784 on 06/09/24 to avoid error on online training.  
+        #     # Note: The clone is needed to make sure that the logic in save_pretrained doesn't see duplicated
+        #     # tensors anywhere (for example, when we use the same stats for normalization and
+        #     # unnormalization). See the logic here
+        #     # https://github.com/huggingface/safetensors/blob/079781fd0dc455ba0fe851e2b4507c33d0c0d407/bindings/python/py_src/safetensors/torch.py#L97.
+        #     if mode == "mean_std":
+        #         buffer["mean"].data = stats[key]["mean"].clone()
+        #         buffer["std"].data = stats[key]["std"].clone()
+        #     elif mode == "min_max":
+        #         buffer["min"].data = stats[key]["min"].clone()
+        #         buffer["max"].data = stats[key]["max"].clone()
 
         stats_buffers[key] = buffer
     return stats_buffers

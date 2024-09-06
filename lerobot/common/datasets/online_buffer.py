@@ -109,13 +109,15 @@ class OnlineBuffer(torch.utils.data.Dataset):
         Path(write_dir).mkdir(parents=True, exist_ok=True)
         self._data = {}
         for k, v in data_spec.items():
-            self._data[k] = _make_memmap_safe(
-                filename=Path(write_dir) / k,
-                dtype=v["dtype"] if v is not None else None,
-                mode="r+" if (Path(write_dir) / k).exists() else "w+",
-                shape=tuple(v["shape"]) if v is not None else None,
-            )
-
+            try:
+                self._data[k] = _make_memmap_safe(
+                    filename=Path(write_dir) / k,
+                    dtype=v["dtype"] if v is not None else None,
+                    mode="r+" if (Path(write_dir) / k).exists() else "w+",
+                    shape=tuple(v["shape"]) if v is not None or v["shape"]!=(None,) else None,
+                )
+            except Exception as e:
+                print(f"Error creating memmap for {k} of type: {v} \n ") 
     @property
     def delta_timestamps(self) -> dict[str, np.ndarray] | None:
         return self._delta_timestamps
@@ -133,7 +135,8 @@ class OnlineBuffer(torch.utils.data.Dataset):
 
     def _make_data_spec(self, data_spec: dict[str, Any], buffer_capacity: int) -> dict[str, dict[str, Any]]:
         """Makes the data spec for np.memmap."""
-        if any(k.startswith("_") for k in data_spec):
+        
+        if data_spec is not None and any(k.startswith("_") for k in data_spec):
             raise ValueError(
                 "data_spec keys should not start with '_'. This prefix is reserved for internal logic."
             )
@@ -143,7 +146,7 @@ class OnlineBuffer(torch.utils.data.Dataset):
             OnlineBuffer.EPISODE_INDEX_KEY,
             OnlineBuffer.TIMESTAMP_KEY,
         }
-        if len(intersection := set(data_spec).intersection(preset_keys)) > 0:
+        if data_spec is not None and len(intersection := set(data_spec).intersection(preset_keys)) > 0:
             raise ValueError(
                 f"data_spec should not contain any of {preset_keys} as these are handled internally. "
                 f"The provided data_spec has {intersection}."
@@ -160,8 +163,9 @@ class OnlineBuffer(torch.utils.data.Dataset):
             OnlineBuffer.EPISODE_INDEX_KEY: {"dtype": np.dtype("int64"), "shape": (buffer_capacity,)},
             OnlineBuffer.TIMESTAMP_KEY: {"dtype": np.dtype("float64"), "shape": (buffer_capacity,)},
         }
-        for k, v in data_spec.items():
-            complete_data_spec[k] = {"dtype": v["dtype"], "shape": (buffer_capacity, *v["shape"])}
+        if data_spec is not None:
+            for k, v in data_spec.items():
+                complete_data_spec[k] = {"dtype": v["dtype"], "shape": (buffer_capacity, *v["shape"])}
         return complete_data_spec
 
     def add_data(self, data: dict[str, np.ndarray]):
